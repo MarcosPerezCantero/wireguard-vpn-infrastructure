@@ -292,7 +292,7 @@ Si la red donde te conectas usa el mismo rango que tu casa (por ejemplo `192.168
 
 Usa `WG_POST_UP` en el docker-compose.yml o instala `iptables-persistent`.
 
-## 🔒 10. Seguridad
+## 10. Seguridad
 
 - **WireGuard** es muy seguro. No responde a paquetes sin las claves correctas, es invisible a escaneos de puertos.
 - **Nunca compartas** tus claves privadas (PrivateKey, PresharedKey) ni tu token de DuckDNS.
@@ -306,7 +306,7 @@ wg genpsk > client_preshared.key
 - Actualiza la clave pública en el servidor y la privada en el cliente.
 - Regenera el token de DuckDNS desde su web si se ha expuesto.
 
-## 🌍 Flujo completo de conexión
+## Flujo completo de conexión
 
 ```
 Mac (fuera de casa)
@@ -325,7 +325,7 @@ Mac (fuera de casa)
                           → RDP funciona ✅
 ```
 
-## 📝 Herramientas útiles
+## Herramientas útiles
 
 - **Wireshark:** para depurar tráfico WireGuard, filtra por `udp.port == 51820`
 - **Verificar IP pública:** `curl ifconfig.me`
