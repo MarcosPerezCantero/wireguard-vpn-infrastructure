@@ -1,99 +1,135 @@
-Self-Hosted VPN Infrastructure with WireGuard, Docker & Dynamic DNS
-Guía completa para montar una VPN WireGuard en Raspberry Pi 5 con Digi (CG-NAT), DuckDNS y acceso por escritorio remoto (RDP) a tu red local.
+# Infraestructura VPN Self-Hosted con WireGuard, Docker y DNS Dinamico
 
+Configuracion completa de una VPN self-hosted usando WireGuard en Raspberry Pi 5, incluyendo bypass de CG-NAT, DNS dinamico con DuckDNS, enrutamiento con iptables MASQUERADE y acceso seguro por RDP a la red local.
 
-Requisitos
+> Available in English: [README.md](README.md)
+
+## Descripcion general
+
+Este proyecto documenta el proceso completo de construir una infraestructura de acceso remoto desde cero. El objetivo es conectarse por Escritorio Remoto (RDP) desde cualquier red externa a un PC Windows en la red de casa, usando una VPN WireGuard en una Raspberry Pi 5 como punto de entrada.
+
+La configuracion cubre problemas reales como Carrier-Grade NAT (CG-NAT), direcciones IP dinamicas, conflictos de subredes, enrutamiento con iptables entre interfaces y troubleshooting de firewall.
+
+## Arquitectura
+
+```
+Cliente (fuera de casa)
+  -> Internet
+    -> IP publica dinamica (ISP)
+      -> Router (port forward UDP 51820)
+        -> Raspberry Pi 5 (WireGuard en Docker)
+          -> Tunel cifrado establecido
+            -> Cliente envia trafico a 192.168.50.20
+              -> Pasa por el tunel WireGuard
+                -> Raspberry lo recibe en wg0
+                  -> MASQUERADE: cambia origen de 10.8.0.2 a 192.168.50.244
+                    -> PC Windows recibe y responde
+                      -> Raspberry reenvia respuesta por el tunel
+                        -> Cliente recibe
+                          -> Conexion RDP establecida
+```
+
+## Requisitos
 
 - Raspberry Pi 5 con Raspberry Pi OS
-- Router Digi (o similar con CG-NAT)
-- Docker y Docker Compose instalados en la Raspberry
-- Cuenta en DuckDNS
-- Cliente WireGuard en el dispositivo desde el que te conectas (Mac, Windows, iOS, Android)
+- Router con CG-NAT (probado con Digi Espana)
+- Docker y Docker Compose instalados en la Raspberry Pi
+- Cuenta en DuckDNS (https://www.duckdns.org)
+- Cliente WireGuard en el dispositivo desde el que te conectas (macOS, Windows, iOS, Android)
 
-1. Verificar si tienes CG-NAT
+## 1. Deteccion y bypass de CG-NAT
 
-Accede al panel de tu router (normalmente 192.168.1.1) y ve a Estado. Fíjate en:
+### Detectar CG-NAT
 
-- Dirección IP (WAN): si empieza por 10.x.x.x, 100.64-127.x.x o 172.16-31.x.x estás detrás de CG-NAT.
-- Puerta de enlace predeterminada: si es una IP privada (por ejemplo 10.0.32.89), confirma CG-NAT.
+Accede al panel de administracion del router y revisa el estado WAN. Estas detras de CG-NAT si:
 
-Con CG-NAT nadie desde internet puede conectarse a tu red. Necesitas una IP pública.
+- La IP WAN es privada (empieza por `10.x.x.x`, `100.64-127.x.x` o `172.16-31.x.x`).
+- La puerta de enlace predeterminada es una IP privada.
 
-Solución con Digi
+Con CG-NAT, ninguna conexion entrante puede llegar a tu red desde internet.
 
-Contrata Conexión Plus (IP dinámica pública). Tras contratar:
+### Solucion
+
+Contacta con tu ISP y solicita una IPv4 publica dinamica. Con Digi Espana se llama "Conexion Plus". Tras la activacion:
 
 1. Reinicia el router.
-2. Verifica que la IP WAN es pública (tipo 79.x.x.x).
-3. La puerta de enlace también debe ser pública.
+2. Verifica que la IP WAN es publica (por ejemplo `79.x.x.x`).
+3. La puerta de enlace tambien debe ser una IP publica.
 
-⚠️ Si tras reiniciar sigue mostrando IP privada, llama a Digi y diles que tu WAN sigue con IP 10.x.x.x.
+Si la WAN sigue mostrando una IP privada tras reiniciar, contacta con el ISP de nuevo — puede que necesiten activarlo manualmente.
 
-2. DuckDNS — DNS dinámico
+## 2. DNS dinamico con DuckDNS
 
-Como la IP pública es dinámica (puede cambiar), usamos DuckDNS para tener un dominio fijo que siempre apunte a tu IP actual.
+Como la IP publica es dinamica y puede cambiar en cualquier momento, DuckDNS proporciona un dominio fijo que siempre resuelve a la IP publica actual.
 
-1. Crea una cuenta en duckdns.org.
-2. Crea un subdominio (por ejemplo midominio.duckdns.org).
+1. Crea una cuenta en [duckdns.org](https://www.duckdns.org).
+2. Crea un subdominio (por ejemplo `midominio.duckdns.org`).
 3. Guarda tu token.
 
-El contenedor de DuckDNS en Docker se encargará de actualizar la IP automáticamente.
+El contenedor de DuckDNS en Docker se encarga de actualizar la IP automaticamente.
 
-3. Cambiar la subred de tu red local (recomendado)
+## 3. Cambiar la subred de casa (recomendado)
 
-La mayoría de routers usan 192.168.1.0/24 de fábrica. Esto causa conflictos cuando te conectas desde otra red que use el mismo rango (oficinas, cafeterías, hoteles). El tráfico va por la red local en vez de por la VPN.
+La mayoria de routers vienen con `192.168.1.0/24` por defecto. Esto causa conflictos de enrutamiento cuando te conectas desde redes que usan el mismo rango (oficinas, hoteles, cafeterias). El trafico destinado a la VPN va por la red local en vez de por el tunel.
 
-En el router Digi, ve a Red → Configuración de LAN y cambia:
-Campo	Valor
-Dirección IP	192.168.50.1
-Máscara de subred	255.255.255.0
-Piscina DHCP	192.168.50.128 - 192.168.50.254
-Puerta de enlace	192.168.50.1
-DNS primario	192.168.50.1
+Cambia la subred de casa a algo menos comun en la configuracion LAN del router:
 
-Guarda y reinicia el router. Para acceder al router ahora será 192.168.50.1.
+| Campo | Valor |
+|-------|-------|
+| IP del router | `192.168.50.1` |
+| Mascara de subred | `255.255.255.0` |
+| Rango DHCP | `192.168.50.128` - `192.168.50.254` |
+| Puerta de enlace | `192.168.50.1` |
+| DNS primario | `192.168.50.1` |
 
-Actualizar IP estática de la Raspberry Pi 5
+### Actualizar la IP estatica de la Raspberry Pi 5
 
-En Raspberry Pi 5 se usa NetworkManager. Edita el archivo de conexión:
+Raspberry Pi 5 usa NetworkManager. Edita el archivo de conexion:
 
+```bash
 sudo nano /etc/NetworkManager/system-connections/NOMBRE_CONEXION.nmconnection
+```
 
+Actualiza la seccion `[ipv4]`:
 
-Cambia la sección [ipv4]:
-
+```ini
 [ipv4]
 method=manual
 address1=192.168.50.244/24,192.168.50.1
 dns=192.168.50.1
+```
 
+Reinicia:
 
-Reinicia la Raspberry:
-
+```bash
 sudo reboot
+```
 
-
-4. Docker Compose — WireGuard + DuckDNS
+## 4. Docker Compose — WireGuard y DuckDNS
 
 Crea un directorio para el proyecto:
 
+```bash
 mkdir ~/docker && cd ~/docker
+```
 
+Crea un archivo `.env` con tus credenciales:
 
-Crea un archivo .env con tus datos:
-
+```env
 WG_HOST=midominio.duckdns.org
 DD_SUBDOMAINS=midominio
 DD_TOKEN=tu_token_de_duckdns
+```
 
+Crea un archivo `wg_password_hash.env` con el hash de la contrasena para la interfaz web de wg-easy:
 
-Crea un archivo wg_password_hash.env con el hash de la contraseña para la interfaz web de wg-easy:
-
+```env
 PASSWORD_HASH=tu_hash_aqui
+```
 
+Crea el `docker-compose.yml`:
 
-Crea el docker-compose.yml:
-
+```yaml
 services:
   wg-easy:
     image: ghcr.io/wg-easy/wg-easy:latest
@@ -125,28 +161,34 @@ services:
       SUBDOMAINS: "${DD_SUBDOMAINS}"
       TOKEN: "${DD_TOKEN}"
     restart: unless-stopped
-
+```
 
 Levanta los contenedores:
 
+```bash
 sudo docker compose up -d
+```
 
+Notas:
+- `network_mode: host` significa que WireGuard usa directamente las interfaces de red de la Raspberry Pi. Los puertos no apareceran en `docker ps` — esto es normal.
+- Si la Raspberry Pi esta conectada por Wi-Fi, la interfaz es `wlan0`. Si esta por cable, cambia `wlan0` por `eth0` en los comandos `WG_POST_UP` y `WG_POST_DOWN`.
 
-Nota: network_mode: host hace que WireGuard use directamente las interfaces de red de la Raspberry. Por eso no verás puertos mapeados en docker ps. Si la Raspberry está por Wi-Fi, la interfaz es wlan0; si está por cable, usa eth0 (ajusta el WG_POST_UP en consecuencia).
+## 5. Port forwarding en el router
 
-5. Port forwarding en el router
+En el panel de administracion del router, crea una regla de reenvio de puertos:
 
-En el router Digi, ve a Reenvío de NAT y crea una regla:
-Campo	Valor
-Protocolo	UDP
-Puerto externo	51820
-IP interna	192.168.50.244
-Puerto interno	51820
+| Campo | Valor |
+|-------|-------|
+| Protocolo | UDP |
+| Puerto externo | 51820 |
+| IP interna | 192.168.50.244 |
+| Puerto interno | 51820 |
 
-6. Configuración del cliente WireGuard
+## 6. Configuracion del cliente WireGuard
 
-Instala la app de WireGuard en tu dispositivo (Mac, Windows, iOS, Android) y crea un túnel con esta configuración:
+Instala la app de WireGuard en tu dispositivo y crea un tunel:
 
+```ini
 [Interface]
 PrivateKey = TU_CLAVE_PRIVADA
 Address = 10.8.0.2/24
@@ -158,152 +200,149 @@ PresharedKey = TU_PRESHARED_KEY
 AllowedIPs = 10.8.0.0/24, 192.168.50.0/24
 Endpoint = midominio.duckdns.org:51820
 PersistentKeepalive = 25
+```
 
+Notas sobre la configuracion:
 
-Notas sobre la configuración:
+- `AllowedIPs = 10.8.0.0/24, 192.168.50.0/24` enruta solo el trafico de la VPN y la red local a traves del tunel. Usa `0.0.0.0/0` para enrutar todo el trafico por la VPN.
+- `PersistentKeepalive = 25` mantiene la conexion viva cuando estas detras de NAT.
+- `Endpoint` apunta al dominio de DuckDNS que siempre resuelve a la IP publica actual.
 
-- AllowedIPs = 10.8.0.0/24, 192.168.50.0/24 — Solo el tráfico hacia la red del túnel y tu red local pasa por la VPN. Si quieres que todo el tráfico pase por la VPN, usa 0.0.0.0/0.
-- PersistentKeepalive = 25 — Mantiene la conexión viva, importante cuando conectas desde redes con NAT.
-- Endpoint — Apunta a tu dominio de DuckDNS que siempre resuelve a tu IP pública actual.
+## 7. MASQUERADE — Por que es necesario
 
-7. MASQUERADE — Por qué es necesario
+Sin MASQUERADE, los clientes VPN no pueden comunicarse con los dispositivos de la red local. Esto es lo que ocurre:
 
-Sin MASQUERADE, los clientes VPN no pueden comunicarse con los dispositivos de tu red local. El flujo es:
-
-1. Tu Mac envía un paquete a 192.168.50.20 (PC Windows) con IP de origen 10.8.0.2.
-2. El paquete llega a la Raspberry por el túnel WireGuard.
-3. La Raspberry reenvía el paquete al PC Windows.
-4. El PC Windows recibe un paquete de 10.8.0.2, una red que no conoce, y no sabe cómo responder. Lo descarta.
+1. El cliente envia un paquete a `192.168.50.20` (PC Windows) con IP de origen `10.8.0.2`.
+2. El paquete llega a la Raspberry Pi a traves del tunel WireGuard.
+3. La Raspberry Pi reenvia el paquete al PC Windows.
+4. El PC Windows recibe un paquete de `10.8.0.2`, una red que no conoce, y lo descarta.
 
 Con MASQUERADE:
 
-1. Tu Mac envía un paquete a 192.168.50.20 con IP de origen 10.8.0.2.
-2. El paquete llega a la Raspberry.
-3. La Raspberry cambia la IP de origen a su propia IP (192.168.50.244) antes de reenviarlo.
-4. El PC Windows recibe un paquete de 192.168.50.244, responde a la Raspberry.
-5. La Raspberry reenvía la respuesta de vuelta por el túnel al Mac.
+1. El cliente envia un paquete a `192.168.50.20` con IP de origen `10.8.0.2`.
+2. El paquete llega a la Raspberry Pi.
+3. La Raspberry Pi cambia la IP de origen a su propia IP (`192.168.50.244`) antes de reenviarlo.
+4. El PC Windows recibe un paquete de `192.168.50.244`, responde a la Raspberry Pi.
+5. La Raspberry Pi reenvia la respuesta de vuelta por el tunel al cliente.
 
-Hacer las reglas persistentes
+### El comando explicado
+
+```
+iptables-legacy -t nat -A POSTROUTING -s 10.8.0.0/24 -o wlan0 -j MASQUERADE
+```
+
+| Parte | Significado |
+|-------|-------------|
+| `iptables-legacy` | Usa el sistema de firewall legacy (requerido por WireGuard en Docker) |
+| `-t nat` | Opera en la tabla NAT (modificacion de IPs) |
+| `-A POSTROUTING` | Aplica la regla justo antes de que el paquete salga por la interfaz |
+| `-s 10.8.0.0/24` | Solo aplica a paquetes de la red VPN |
+| `-o wlan0` | Solo aplica a paquetes que salen por Wi-Fi (cambiar a `eth0` para cable) |
+| `-j MASQUERADE` | Sustituye la IP de origen por la IP de la interfaz de salida |
+
+### Hacer las reglas persistentes
 
 Las reglas de iptables se pierden al reiniciar. Dos opciones:
 
-Opción 1 — Desde wg-easy (recomendada): Usa WG_POST_UP y WG_POST_DOWN en el docker-compose.yml (ya incluido en la configuración anterior).
+Opcion 1 — Usando wg-easy (recomendada): Usa `WG_POST_UP` y `WG_POST_DOWN` en `docker-compose.yml` (ya incluido en la configuracion anterior).
 
-Opción 2 — Con iptables-persistent:
+Opcion 2 — Usando iptables-persistent:
 
+```bash
 sudo apt install iptables-persistent
 sudo iptables-legacy-save > /etc/iptables/rules.v4
+```
 
+## 8. Escritorio remoto (RDP)
 
-El comando desglosado
+Con la VPN conectada, puedes acceder al PC Windows por RDP.
 
-iptables-legacy -t nat -A POSTROUTING -s 10.8.0.0/24 -o wlan0 -j MASQUERADE
-Parte	Significado
-iptables-legacy	Usa el sistema de firewall legacy (requerido por WireGuard en Docker)
--t nat	Trabaja en la tabla NAT (modificación de IPs)
--A POSTROUTING	Aplica la regla justo antes de que el paquete salga por la interfaz
--s 10.8.0.0/24	Solo para paquetes que vengan de la red VPN
--o wlan0	Solo para paquetes que salgan por Wi-Fi (cambiar a eth0 si usas cable)
--j MASQUERADE	Cambia la IP de origen por la IP de la interfaz de salida
+### Configuracion del PC Windows
 
-🖥️ 8. Escritorio remoto (RDP)
-
-Con la VPN conectada, puedes acceder por RDP al PC Windows de tu red local.
-
-Requisitos en el PC Windows
-
-1. Activar Escritorio remoto: Configuración → Sistema → Escritorio remoto → Activado.
+1. Activar Escritorio remoto: Configuracion -> Sistema -> Escritorio remoto -> Activado.
 2. Permitir en el firewall:
 
+```cmd
 netsh advfirewall firewall add rule name="Allow RDP" protocol=tcp dir=in localport=3389 action=allow
+```
 
-
-Conexión desde Mac
+### Conexion desde macOS
 
 En Microsoft Remote Desktop:
 
-- PC name: 192.168.50.20 (IP del PC Windows)
-- Gateway: None (importante, no usar Gateway)
-- User account: Tu usuario de Windows
+- PC name: `192.168.50.20` (IP local del PC Windows)
+- Gateway: **None** (importante — no usar Remote Desktop Gateway)
+- User account: Tus credenciales de Windows
 
-⚠️ Si usas un Remote Desktop Gateway por error, recibirás el error 0x300005. Asegúrate de que Gateway está en None.
+Usar un Remote Desktop Gateway por error produce el error `0x300005`. Asegurate de que Gateway esta en **None**.
 
-Verificar conectividad
+### Verificar conectividad
 
-Antes de conectar por RDP, comprueba desde el Mac con la VPN activa:
+Antes de conectar por RDP, verifica desde el cliente con la VPN activa:
 
-# Ping a la Raspberry
+```bash
+# Ping a la Raspberry Pi
 ping 192.168.50.244
 
 # Ping al PC Windows
 ping 192.168.50.20
 
-# Puerto RDP abierto
+# Comprobar puerto RDP
 nc -zv 192.168.50.20 3389
+```
 
+## 9. Problemas comunes
 
-⚠️ 9. Problemas comunes
+### No llego a la Raspberry Pi por ping
 
-No llego a la Raspberry por ping
+- Verifica que WireGuard esta corriendo: `sudo docker ps`
+- Comprueba el port forwarding en el router (UDP 51820 -> 192.168.50.244)
+- Verifica el handshake: `sudo docker exec wg-easy wg show`
+- Comprueba el IP forwarding: `cat /proc/sys/net/ipv4/ip_forward` (debe ser `1`)
 
-- Verifica que WireGuard está corriendo: sudo docker ps
-- Comprueba el port forwarding en el router (UDP 51820 → 192.168.50.244)
-- Verifica el handshake: sudo docker exec wg-easy wg show
+### Llego a la Raspberry Pi pero no al PC Windows
 
-Llego a la Raspberry pero no al PC Windows
+- Falta la regla de MASQUERADE. Comprueba con: `sudo iptables-legacy -t nat -L POSTROUTING -v`
+- Verifica que la regla tiene `pkts > 0` tras enviar trafico. Si `pkts` se queda en 0, la regla no esta coincidiendo.
+- Asegurate de que la interfaz de salida es correcta (`wlan0` para Wi-Fi, `eth0` para cable).
+- Comprueba la politica FORWARD: `sudo iptables -L FORWARD -v`. Si muestra `policy DROP`, ejecuta `sudo iptables -P FORWARD ACCEPT`.
 
-- Falta MASQUERADE. Ejecuta las reglas de iptables.
-- Comprueba con sudo iptables-legacy -t nat -L POSTROUTING -v que la regla existe y tiene pkts > 0.
-- Asegúrate de que la interfaz es correcta (wlan0 para Wi-Fi, eth0 para cable).
-- Verifica que FORWARD está en ACCEPT: sudo iptables -P FORWARD ACCEPT
+### iptables vs iptables-legacy
 
-iptables vs iptables-legacy
+La Raspberry Pi puede tener dos sistemas de firewall funcionando. WireGuard en Docker usa `iptables-legacy`. Docker usa `iptables` (nftables). Si las reglas no funcionan en uno, prueba en el otro. Docker pone la politica FORWARD en DROP por defecto en nftables, lo que bloquea el reenvio de trafico de la VPN.
 
-La Raspberry puede tener dos sistemas de firewall. WireGuard en Docker usa iptables-legacy. Docker usa iptables (nftables). Si las reglas no funcionan en uno, prueba en el otro. El comando iptables -L FORWARD -v puede mostrar policy DROP (puesto por Docker) que bloquea el tráfico de la VPN.
+### Conflicto de subredes
 
-Conflicto de subredes
+Si la red desde la que te conectas usa el mismo rango que tu red de casa (por ejemplo ambas usan `192.168.1.0/24`), el trafico no pasara por la VPN. El sistema operativo envia los paquetes por la red local en vez de por el tunel. Solucion: cambiar la subred de casa a algo poco comun como `192.168.50.0/24`.
 
-Si la red donde te conectas usa el mismo rango que tu casa (por ejemplo 192.168.1.0/24), el tráfico no pasa por la VPN. El sistema operativo envía los paquetes por la red local. Solución: cambiar la subred de casa a algo poco común como 192.168.50.0/24.
+Puedes verificar que el tunel funciona haciendo ping al gateway de la VPN: `ping 10.8.0.1`. Si responde pero las direcciones `192.168.50.x` no, es un conflicto de subredes.
 
-Las reglas se pierden al reiniciar
+### Las reglas se pierden al reiniciar
 
-Usa WG_POST_UP en el docker-compose.yml o instala iptables-persistent.
+Usa `WG_POST_UP` en `docker-compose.yml` o instala `iptables-persistent`.
 
-10. Seguridad
+## 10. Seguridad
 
-- WireGuard es muy seguro. No responde a paquetes sin las claves correctas, es invisible a escaneos de puertos.
-- Nunca compartas tus claves privadas (PrivateKey, PresharedKey) ni tu token de DuckDNS.
-- Si las claves se comprometen, regenera con:
+- WireGuard no responde a paquetes sin claves validas. Es invisible a escaneos de puertos.
+- Nunca compartas las claves privadas (PrivateKey, PresharedKey) ni tu token de DuckDNS.
+- Si las claves se comprometen, regeneralas:
 
+```bash
 wg genkey | tee client_private.key | wg pubkey > client_public.key
 wg genpsk > client_preshared.key
+```
 
+- Actualiza la clave publica del cliente en la configuracion del servidor y la clave privada en la configuracion del cliente.
+- Regenera el token de DuckDNS desde la web si ha quedado expuesto.
 
-- Actualiza la clave pública en el servidor y la privada en el cliente.
-- Regenera el token de DuckDNS desde su web si se ha expuesto.
+## Comandos utiles
 
-Flujo completo de conexión
-
-Mac (fuera de casa)
-  → Internet
-    → IP pública Digi (79.x.x.x)
-      → Router Digi (port forward UDP 51820)
-        → Raspberry Pi (WireGuard en Docker)
-          → Túnel cifrado establecido
-            → Mac envía tráfico a 192.168.50.20
-              → Pasa por el túnel WireGuard
-                → Raspberry lo recibe en wg0
-                  → MASQUERADE: cambia origen de 10.8.0.2 a 192.168.50.244
-                    → PC Windows recibe y responde
-                      → Raspberry reenvía respuesta por el túnel
-                        → Mac recibe
-                          → RDP funciona ✅
-
-
-Herramientas útiles
-
-- Wireshark: para depurar tráfico WireGuard, filtra por udp.port == 51820
-- Verificar IP pública: curl ifconfig.me
-- Ver estado WireGuard: sudo docker exec wg-easy wg show
-- Ver reglas NAT: sudo iptables-legacy -t nat -L POSTROUTING -v
-- Escanear red local: nmap -sn 192.168.50.0/24 o arp -a
+| Comando | Proposito |
+|---------|-----------|
+| `sudo docker exec wg-easy wg show` | Ver estado de WireGuard y handshakes |
+| `sudo iptables-legacy -t nat -L POSTROUTING -v` | Ver reglas NAT y contadores de paquetes |
+| `sudo iptables -L FORWARD -v` | Comprobar politica de la cadena FORWARD |
+| `curl ifconfig.me` | Ver IP publica actual |
+| `nmap -sn 192.168.50.0/24` | Escanear dispositivos en la red local |
+| `nc -zv 192.168.50.20 3389` | Comprobar si el puerto RDP es accesible |
+| `udp.port == 51820` | Filtro de Wireshark para trafico WireGuard |
