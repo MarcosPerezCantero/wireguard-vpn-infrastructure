@@ -1,9 +1,6 @@
-# wireguard-raspberry-digi
+# Self-Hosted VPN Infrastructure with WireGuard, Docker & Dynamic DNS
 Guía completa para montar una VPN WireGuard en Raspberry Pi 5 con Digi (CG-NAT), DuckDNS y acceso por escritorio remoto (RDP) a tu red local.
 
-# VPN WireGuard en Raspberry Pi 5 con Digi + DuckDNS + RDP
-
-Guía completa para montar una VPN WireGuard en una Raspberry Pi 5 con operador Digi (CG-NAT), DNS dinámico con DuckDNS y acceso por escritorio remoto (RDP) a tu red local desde cualquier sitio.
 
 ## Requisitos
 
