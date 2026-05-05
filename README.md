@@ -1,11 +1,11 @@
 # wireguard-raspberry-digi
 Guía completa para montar una VPN WireGuard en Raspberry Pi 5 con Digi (CG-NAT), DuckDNS y acceso por escritorio remoto (RDP) a tu red local.
 
-# 🏠 VPN WireGuard en Raspberry Pi 5 con Digi + DuckDNS + RDP
+# VPN WireGuard en Raspberry Pi 5 con Digi + DuckDNS + RDP
 
 Guía completa para montar una VPN WireGuard en una Raspberry Pi 5 con operador Digi (CG-NAT), DNS dinámico con DuckDNS y acceso por escritorio remoto (RDP) a tu red local desde cualquier sitio.
 
-## 📋 Requisitos
+## Requisitos
 
 - Raspberry Pi 5 con Raspberry Pi OS
 - Router Digi (o similar con CG-NAT)
@@ -13,7 +13,7 @@ Guía completa para montar una VPN WireGuard en una Raspberry Pi 5 con operador 
 - Cuenta en [DuckDNS](https://www.duckdns.org)
 - Cliente WireGuard en el dispositivo desde el que te conectas (Mac, Windows, iOS, Android)
 
-## 🔍 1. Verificar si tienes CG-NAT
+## 1. Verificar si tienes CG-NAT
 
 Accede al panel de tu router (normalmente `192.168.1.1`) y ve a **Estado**. Fíjate en:
 
@@ -32,7 +32,7 @@ Contrata **Conexión Plus** (IP dinámica pública). Tras contratar:
 
 > ⚠️ Si tras reiniciar sigue mostrando IP privada, llama a Digi y diles que tu WAN sigue con IP `10.x.x.x`.
 
-## 🌐 2. DuckDNS — DNS dinámico
+## 2. DuckDNS — DNS dinámico
 
 Como la IP pública es dinámica (puede cambiar), usamos DuckDNS para tener un dominio fijo que siempre apunte a tu IP actual.
 
@@ -42,7 +42,7 @@ Como la IP pública es dinámica (puede cambiar), usamos DuckDNS para tener un d
 
 El contenedor de DuckDNS en Docker se encargará de actualizar la IP automáticamente.
 
-## 🔧 3. Cambiar la subred de tu red local (recomendado)
+## 3. Cambiar la subred de tu red local (recomendado)
 
 La mayoría de routers usan `192.168.1.0/24` de fábrica. Esto causa conflictos cuando te conectas desde otra red que use el mismo rango (oficinas, cafeterías, hoteles). El tráfico va por la red local en vez de por la VPN.
 
@@ -81,7 +81,7 @@ Reinicia la Raspberry:
 sudo reboot
 ```
 
-## 🐳 4. Docker Compose — WireGuard + DuckDNS
+## 4. Docker Compose — WireGuard + DuckDNS
 
 Crea un directorio para el proyecto:
 
@@ -147,7 +147,7 @@ sudo docker compose up -d
 
 > **Nota:** `network_mode: host` hace que WireGuard use directamente las interfaces de red de la Raspberry. Por eso no verás puertos mapeados en `docker ps`. Si la Raspberry está por Wi-Fi, la interfaz es `wlan0`; si está por cable, usa `eth0` (ajusta el `WG_POST_UP` en consecuencia).
 
-## 🔀 5. Port forwarding en el router
+## 5. Port forwarding en el router
 
 En el router Digi, ve a **Reenvío de NAT** y crea una regla:
 
@@ -158,7 +158,7 @@ En el router Digi, ve a **Reenvío de NAT** y crea una regla:
 | IP interna | 192.168.50.244 |
 | Puerto interno | 51820 |
 
-## 📱 6. Configuración del cliente WireGuard
+## 6. Configuración del cliente WireGuard
 
 Instala la app de WireGuard en tu dispositivo (Mac, Windows, iOS, Android) y crea un túnel con esta configuración:
 
@@ -182,7 +182,7 @@ PersistentKeepalive = 25
 - `PersistentKeepalive = 25` — Mantiene la conexión viva, importante cuando conectas desde redes con NAT.
 - `Endpoint` — Apunta a tu dominio de DuckDNS que siempre resuelve a tu IP pública actual.
 
-## 🔐 7. MASQUERADE — Por qué es necesario
+## 7. MASQUERADE — Por qué es necesario
 
 Sin MASQUERADE, los clientes VPN no pueden comunicarse con los dispositivos de tu red local. El flujo es:
 
